@@ -5,36 +5,36 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from pymongo import MongoClient
 
-# === CONFIG ===
-API_ID = int(os.environ.get("API_ID", 0))
+# ===== CONFIG =====
+API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
+ADMIN_ID = int(os.environ.get("ADMIN_ID"))
 MONGO_URI = os.environ.get("MONGO_URI")
 
-# === DATABASE ===
+# ===== DATABASE =====
 mongo = MongoClient(MONGO_URI)
 db = mongo["multiuserbot"]
-sessions_col = db["sessions"]    # string sessions
-history_col = db["history"]      # sent messages (groups/users)
-joined_col = db["joined_links"]  # joined links
+sessions_col = db["sessions"]       # active string sessions
+history_col = db["history"]         # sent messages
+joined_col = db["joined_links"]     # joined links
 
 clients = []
 
-# === Load sessions from DB ===
+# ===== Load all sessions =====
 async def start_clients():
     sessions = [x["session"] for x in sessions_col.find({"active": True})]
-    for i, s in enumerate(sessions):
+    for idx, s in enumerate(sessions):
         try:
-            c = Client(f"acc{i+1}", api_id=API_ID, api_hash=API_HASH, session_string=s, no_updates=True)
+            c = Client(f"acc{idx+1}", api_id=API_ID, api_hash=API_HASH, session_string=s, no_updates=True)
             await c.start()
             clients.append(c)
             me = await c.get_me()
             print(f"✅ Started: {me.first_name} (@{me.username})")
         except Exception as e:
-            print(f"❌ Failed session {i+1}: {e}")
+            print(f"❌ Failed session {idx+1}: {e}")
 
-# === Admin decorator ===
+# ===== Admin Decorator =====
 def admin_only(func):
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if update.effective_user.id != ADMIN_ID:
@@ -42,14 +42,14 @@ def admin_only(func):
         return await func(update, context)
     return wrapper
 
-# === Commands ===
+# ===== Commands =====
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
-        "🌸 Welcome to Multi Session Bot 🌸\n\n"
+        "🌸 Multi Session Bot 🌸\n\n"
         "/group <msg> - send to all groups\n"
         "/user <msg> - send to all personal chats\n"
-        "/join <link> - join link with all accounts\n"
-        "/leave <link> - leave specific group/channel\n"
+        "/join <link> - join link\n"
+        "/leave <link> - leave group/channel\n"
         "/status - check active sessions\n"
         "/add_session <string> - add new session\n"
         "/list_sessions - list all connected IDs"
@@ -67,7 +67,6 @@ async def group_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             async for d in c.get_dialogs():
                 if d.chat.type in ["group", "supergroup"]:
-                    # check if already sent for this session
                     if history_col.find_one({"chat_id": d.chat.id, "session_idx": idx}):
                         continue
                     try:
@@ -75,12 +74,14 @@ async def group_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         history_col.insert_one({"chat_id": d.chat.id, "session_idx": idx, "type": "group"})
                         sent_count += 1
                         await asyncio.sleep(5)
+                    except errors.FloodWait as e:
+                        await asyncio.sleep(e.value)
                     except Exception as e:
                         failed_count += 1
                         print(f"Group send error: {e}")
         except Exception as e:
             print(f"Dialog fetch error: {e}")
-    await update.message.reply_text(f"✅ Messages sent: {sent_count}\n❌ Failed: {failed_count}")
+    await update.message.reply_text(f"✅ Sent: {sent_count}\n❌ Failed: {failed_count}")
 
 @admin_only
 async def user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -100,22 +101,24 @@ async def user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         history_col.insert_one({"chat_id": d.chat.id, "session_idx": idx, "type": "user"})
                         sent_count += 1
                         await asyncio.sleep(5)
+                    except errors.FloodWait as e:
+                        await asyncio.sleep(e.value)
                     except Exception as e:
                         failed_count += 1
                         print(f"User send error: {e}")
         except Exception as e:
             print(f"Dialog fetch error: {e}")
-    await update.message.reply_text(f"✅ Messages sent: {sent_count}\n❌ Failed: {failed_count}")
+    await update.message.reply_text(f"✅ Sent: {sent_count}\n❌ Failed: {failed_count}")
 
 @admin_only
 async def join_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         return await update.message.reply_text("⚠️ Usage: /join <link>")
     link = context.args[0]
-    await update.message.reply_text(f"🔗 Joining {link} ...")
-    joined_count, failed_count = 0, 0
     if joined_col.find_one({"link": link}):
-        return await update.message.reply_text("⚠️ Already joined this link previously.")
+        return await update.message.reply_text("⚠️ Already joined this link")
+    joined_count, failed_count = 0, 0
+    await update.message.reply_text(f"🔗 Joining {link} ...")
     for c in clients:
         try:
             await c.join_chat(link)
@@ -185,7 +188,7 @@ async def list_sessions_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     header = f"🔎 Connected Sessions: {len(clients)}\n\n"
     await update.message.reply_markdown(header + "\n".join(lines) if lines else header + "No sessions.")
 
-# === RUN BOT ===
+# ===== RUN BOT =====
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.run_until_complete(start_clients())
