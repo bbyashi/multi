@@ -2,7 +2,7 @@
   "name": "multiuserbot",
   "description": "Multi Session Telegram Bot with Pyrogram + python-telegram-bot",
   "repository": "https://github.com/yourusername/multiuserbot",
-  "stack": "heroku-20",
+  "stack": "heroku-24",
   "env": {
     "API_ID": {
       "description": "Your Telegram API_ID",
