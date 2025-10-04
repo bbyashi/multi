@@ -1,34 +1,46 @@
 {
-  "name": "multiuserbot",
-  "description": "Multi Session Telegram Bot with Pyrogram + python-telegram-bot",
-  "repository": "https://github.com/yourusername/multiuserbot",
-  "stack": "heroku-24",
+  "name": "MultiUserBot-MongoDB",
+  "description": "Telegram multi-session bot with MongoDB tracking for groups/users/messages.",
+  "repository": "https://github.com/yourusername/multiuserbot-mongo",
+  "logo": "https://raw.githubusercontent.com/yourusername/multiuserbot-mongo/main/logo.png",
+  "keywords": ["telegram", "bot", "pyrogram", "mongodb", "multi-session"],
+  "stack": "heroku-22",
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ],
   "env": {
     "API_ID": {
-      "description": "Your Telegram API_ID",
-      "required": false
+      "description": "Your Telegram API ID",
+      "required": true
     },
     "API_HASH": {
-      "description": "Your Telegram API_HASH",
-      "required": false
+      "description": "Your Telegram API Hash",
+      "required": true
     },
     "BOT_TOKEN": {
-      "description": "Your Telegram Bot Token",
-      "required": false
+      "description": "Telegram Bot Token",
+      "required": true
     },
     "ADMIN_ID": {
-      "description": "Your Telegram User ID (for admin access)",
-      "required": false
+      "description": "Your Telegram user ID for admin commands",
+      "required": true
+    },
+    "MONGO_URI": {
+      "description": "MongoDB connection URI",
+      "required": true
     }
   },
   "formation": {
     "worker": {
-      "quantity": 1
+      "quantity": 1,
+      "size": "eco"
     }
   },
-  "buildpacks": [
+  "addons": [
     {
-      "url": "heroku/python"
+      "plan": "mongolab:sandbox"
     }
   ]
 }
