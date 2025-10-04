@@ -4,6 +4,8 @@ from pyrogram import Client, errors
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from pymongo import MongoClient
+from config import API_ID, API_HASH, BOT_TOKEN, ADMIN_ID, MONGO_URI, FLOOD_DELAY
+
 
 # ===== CONFIG =====
 API_ID = int(os.environ.get("API_ID"))
