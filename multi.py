@@ -1,6 +1,6 @@
-import asyncio
 import os
 import json
+import asyncio
 from pyrogram import Client, errors
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
@@ -15,12 +15,9 @@ STRINGS_FILE = "strings.json"
 # === Load/Save Sessions ===
 def load_strings():
     if os.path.exists(STRINGS_FILE):
-        try:
-            with open(STRINGS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return data.get("strings", [])
-        except:
-            return []
+        with open(STRINGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("strings", [])
     return []
 
 def save_strings(strings):
@@ -30,7 +27,7 @@ def save_strings(strings):
 STRINGS = load_strings()
 clients = []
 
-# === Start Pyrogram clients ===
+# === Start Pyrogram clients (async-safe) ===
 async def start_clients():
     for i, s in enumerate(STRINGS):
         try:
@@ -42,7 +39,15 @@ async def start_clients():
         except Exception as e:
             print(f"❌ Failed session {i+1}: {e}")
 
-# === Commands ===
+# === Admin decorator ===
+def admin_only(func):
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.effective_user.id != ADMIN_ID:
+            return await update.message.reply_text("🚫 You are not authorized!")
+        return await func(update, context)
+    return wrapper
+
+# === Telegram Commands ===
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "🌸 Welcome to Multi Session Bot 🌸\n\n"
@@ -56,13 +61,6 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(text)
 
-def admin_only(func):
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if update.effective_user.id != ADMIN_ID:
-            return await update.message.reply_text("🚫 You are not authorized!")
-        return await func(update, context)
-    return wrapper
-
 @admin_only
 async def group_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = " ".join(context.args)
@@ -72,7 +70,7 @@ async def group_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for c in clients:
         try:
             async for d in c.get_dialogs():
-                if d.chat.type in ["group","supergroup"]:
+                if d.chat.type in ["group", "supergroup"]:
                     await c.send_message(d.chat.id, msg)
                     await asyncio.sleep(5)
         except Exception as e:
@@ -169,15 +167,12 @@ async def list_sessions_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     header=f"🔎 Connected: {len(clients)} | Saved: {len(STRINGS)}\n\n"
     await update.message.reply_markdown(header + "\n".join(lines) if lines else header + "No sessions.")
 
-# === RUN BOT ===
-async def main():
-    print("🚀 Starting Pyrogram clients...")
-    await start_clients()
-    print(f"✅ {len(clients)} clients started.\n")
+# === RUN BOT (Heroku-safe) ===
+if __name__=="__main__":
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(start_clients())  # start Pyrogram clients first
 
-    print("🤖 Starting Telegram Bot...")
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("group", group_cmd))
     app.add_handler(CommandHandler("user", user_cmd))
@@ -187,7 +182,4 @@ async def main():
     app.add_handler(CommandHandler("add_session", add_session_cmd))
     app.add_handler(CommandHandler("list_sessions", list_sessions_cmd))
 
-    app.run_polling()  # synchronous, Heroku safe
-
-if __name__=="__main__":
-    asyncio.run(main())
+    app.run_polling()  # synchronous, Heroku-safe
