@@ -1,35 +1,30 @@
 import os
-import json
 import asyncio
 from pyrogram import Client, errors
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from pymongo import MongoClient
 
 # === CONFIG ===
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
-STRINGS_FILE = "strings.json"
+MONGO_URI = os.environ.get("MONGO_URI")
 
-# === Load/Save Sessions ===
-def load_strings():
-    if os.path.exists(STRINGS_FILE):
-        with open(STRINGS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("strings", [])
-    return []
+# === DATABASE ===
+mongo = MongoClient(MONGO_URI)
+db = mongo["multiuserbot"]
+sessions_col = db["sessions"]    # string sessions
+history_col = db["history"]      # sent messages (groups/users)
+joined_col = db["joined_links"]  # joined links
 
-def save_strings(strings):
-    with open(STRINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump({"strings": strings}, f, indent=2)
-
-STRINGS = load_strings()
 clients = []
 
-# === Start Pyrogram clients (async-safe) ===
+# === Load sessions from DB ===
 async def start_clients():
-    for i, s in enumerate(STRINGS):
+    sessions = [x["session"] for x in sessions_col.find({"active": True})]
+    for i, s in enumerate(sessions):
         try:
             c = Client(f"acc{i+1}", api_id=API_ID, api_hash=API_HASH, session_string=s, no_updates=True)
             await c.start()
@@ -47,7 +42,7 @@ def admin_only(func):
         return await func(update, context)
     return wrapper
 
-# === Telegram Commands ===
+# === Commands ===
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "🌸 Welcome to Multi Session Bot 🌸\n\n"
@@ -66,32 +61,51 @@ async def group_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = " ".join(context.args)
     if not msg:
         return await update.message.reply_text("⚠️ Usage: /group <message>")
+    sent_count, failed_count = 0, 0
     await update.message.reply_text("🚀 Sending to all groups...")
-    for c in clients:
+    for idx, c in enumerate(clients):
         try:
             async for d in c.get_dialogs():
                 if d.chat.type in ["group", "supergroup"]:
-                    await c.send_message(d.chat.id, msg)
-                    await asyncio.sleep(5)
+                    # check if already sent for this session
+                    if history_col.find_one({"chat_id": d.chat.id, "session_idx": idx}):
+                        continue
+                    try:
+                        await c.send_message(d.chat.id, msg)
+                        history_col.insert_one({"chat_id": d.chat.id, "session_idx": idx, "type": "group"})
+                        sent_count += 1
+                        await asyncio.sleep(5)
+                    except Exception as e:
+                        failed_count += 1
+                        print(f"Group send error: {e}")
         except Exception as e:
-            print(f"Group send error: {e}")
-    await update.message.reply_text("✅ Done sending to groups.")
+            print(f"Dialog fetch error: {e}")
+    await update.message.reply_text(f"✅ Messages sent: {sent_count}\n❌ Failed: {failed_count}")
 
 @admin_only
 async def user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = " ".join(context.args)
     if not msg:
         return await update.message.reply_text("⚠️ Usage: /user <message>")
+    sent_count, failed_count = 0, 0
     await update.message.reply_text("💬 Sending to all users...")
-    for c in clients:
+    for idx, c in enumerate(clients):
         try:
             async for d in c.get_dialogs():
-                if d.chat.type=="private":
-                    await c.send_message(d.chat.id, msg)
-                    await asyncio.sleep(5)
+                if d.chat.type == "private":
+                    if history_col.find_one({"chat_id": d.chat.id, "session_idx": idx}):
+                        continue
+                    try:
+                        await c.send_message(d.chat.id, msg)
+                        history_col.insert_one({"chat_id": d.chat.id, "session_idx": idx, "type": "user"})
+                        sent_count += 1
+                        await asyncio.sleep(5)
+                    except Exception as e:
+                        failed_count += 1
+                        print(f"User send error: {e}")
         except Exception as e:
-            print(f"User send error: {e}")
-    await update.message.reply_text("✅ Done sending to users.")
+            print(f"Dialog fetch error: {e}")
+    await update.message.reply_text(f"✅ Messages sent: {sent_count}\n❌ Failed: {failed_count}")
 
 @admin_only
 async def join_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -99,43 +113,48 @@ async def join_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("⚠️ Usage: /join <link>")
     link = context.args[0]
     await update.message.reply_text(f"🔗 Joining {link} ...")
+    joined_count, failed_count = 0, 0
+    if joined_col.find_one({"link": link}):
+        return await update.message.reply_text("⚠️ Already joined this link previously.")
     for c in clients:
         try:
             await c.join_chat(link)
+            joined_count += 1
             await asyncio.sleep(3)
         except errors.FloodWait as e:
             await asyncio.sleep(e.value)
         except Exception as e:
+            failed_count += 1
             print(f"Join error: {e}")
-    await update.message.reply_text("✅ All joined.")
+    joined_col.insert_one({"link": link})
+    await update.message.reply_text(f"✅ Joined: {joined_count}\n❌ Failed: {failed_count}")
 
 @admin_only
 async def leave_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         return await update.message.reply_text("⚠️ Usage: /leave <link>")
     link = context.args[0]
+    left_count, failed_count = 0, 0
     await update.message.reply_text(f"🚪 Leaving {link} ...")
-    success, failed = 0,0
     for c in clients:
         try:
             await c.leave_chat(link)
+            left_count += 1
             await asyncio.sleep(5)
-            success+=1
-        except errors.FloodWait as e:
-            await asyncio.sleep(e.value)
         except Exception as e:
+            failed_count += 1
             print(f"Leave error: {e}")
-            failed+=1
-    await update.message.reply_text(f"✅ Left {success} sessions\n❌ Failed: {failed}")
+    await update.message.reply_text(f"✅ Left: {left_count}\n❌ Failed: {failed_count}")
 
 @admin_only
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = f"📊 Total Sessions: {len(clients)}\n\n"
-    for i,c in enumerate(clients,start=1):
+    for i, c in enumerate(clients, start=1):
         try:
             me = await c.get_me()
             text += f"{i}. {me.first_name} (@{me.username or 'no_username'})\n"
-        except: text += f"{i}. ❌ Error\n"
+        except:
+            text += f"{i}. ❌ Error\n"
     await update.message.reply_text(text)
 
 @admin_only
@@ -148,8 +167,7 @@ async def add_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         c = Client(f"acc{len(clients)+1}", api_id=API_ID, api_hash=API_HASH, session_string=s, no_updates=True)
         await c.start()
         clients.append(c)
-        STRINGS.append(s)
-        save_strings(STRINGS)
+        sessions_col.update_one({"session": s}, {"$set": {"active": True}}, upsert=True)
         me = await c.get_me()
         await msg.edit_text(f"✅ Added: {me.first_name} (@{me.username or 'no_username'})")
     except Exception as e:
@@ -157,20 +175,20 @@ async def add_session_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @admin_only
 async def list_sessions_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lines=[]
-    for i,c in enumerate(clients,start=1):
+    lines = []
+    for i, c in enumerate(clients, start=1):
         try:
-            me=await c.get_me()
+            me = await c.get_me()
             lines.append(f"{i}. {me.first_name} (@{me.username or 'no_username'}) — `{me.id}`")
         except:
             lines.append(f"{i}. ❌ Error")
-    header=f"🔎 Connected: {len(clients)} | Saved: {len(STRINGS)}\n\n"
+    header = f"🔎 Connected Sessions: {len(clients)}\n\n"
     await update.message.reply_markdown(header + "\n".join(lines) if lines else header + "No sessions.")
 
-# === RUN BOT (Heroku-safe) ===
-if __name__=="__main__":
+# === RUN BOT ===
+if __name__ == "__main__":
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(start_clients())  # start Pyrogram clients first
+    loop.run_until_complete(start_clients())
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start_cmd))
@@ -182,4 +200,4 @@ if __name__=="__main__":
     app.add_handler(CommandHandler("add_session", add_session_cmd))
     app.add_handler(CommandHandler("list_sessions", list_sessions_cmd))
 
-    app.run_polling()  # synchronous, Heroku-safe
+    app.run_polling()
