@@ -6,19 +6,19 @@
   "env": {
     "API_ID": {
       "description": "Your Telegram API_ID",
-      "required": true
+      "required": false
     },
     "API_HASH": {
       "description": "Your Telegram API_HASH",
-      "required": true
+      "required": false
     },
     "BOT_TOKEN": {
       "description": "Your Telegram Bot Token",
-      "required": true
+      "required": false
     },
     "ADMIN_ID": {
       "description": "Your Telegram User ID (for admin access)",
-      "required": true
+      "required": false
     }
   },
   "formation": {
