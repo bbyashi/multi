@@ -11,36 +11,13 @@
     }
   ],
   "env": {
-    "API_ID": {
-      "description": "Your Telegram API ID",
-      "required": true
-    },
-    "API_HASH": {
-      "description": "Your Telegram API Hash",
-      "required": true
-    },
-    "BOT_TOKEN": {
-      "description": "Telegram Bot Token",
-      "required": true
-    },
-    "ADMIN_ID": {
-      "description": "Your Telegram user ID for admin commands",
-      "required": true
-    },
-    "MONGO_URI": {
-      "description": "MongoDB connection URI",
-      "required": true
-    }
+    "API_ID": {"description": "Telegram API ID", "required": true},
+    "API_HASH": {"description": "Telegram API Hash", "required": true},
+    "BOT_TOKEN": {"description": "Telegram Bot Token", "required": true},
+    "ADMIN_ID": {"description": "Your Telegram user ID", "required": true},
+    "MONGO_URI": {"description": "MongoDB Atlas URI", "required": true}
   },
   "formation": {
-    "worker": {
-      "quantity": 1,
-      "size": "eco"
-    }
-  },
-  "addons": [
-    {
-      "plan": "mongolab:sandbox"
-    }
-  ]
+    "worker": {"quantity": 1, "size": "eco"}
+  }
 }
