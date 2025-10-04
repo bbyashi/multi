@@ -6,10 +6,10 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # === CONFIG ===
-API_ID = 123456  # apna API_ID daal
-API_HASH = "your_api_hash"
-BOT_TOKEN = "your_bot_token"
-ADMIN_ID = 123456789  # sirf admin ID ko access milega
+API_ID = 21189715  # apna API_ID daal
+API_HASH = "988a9111105fd2f0c5e21c2c2449edfd"
+BOT_TOKEN = "8388314171:AAFXrRKZU0d7XMRP5sRNi89ixXXzYGo0_Ws"
+ADMIN_ID = 8111174619  # sirf admin ID ko access milega
 
 STRINGS_FILE = "strings.json"
 
